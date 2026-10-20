@@ -1,0 +1,17 @@
+[package]
+name = "letras-core"
+version = "0.1.0"
+edition = "2024"
+description = "Game logic for Letras y Líneas, independent of the UI shell"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { version = "0.40", features = ["bundled"] }
+reqwest = { version = "0.13", features = ["json", "query"] }
+thiserror = "2"
+tokio = { version = "1", features = ["time", "process", "io-util", "fs", "macros"] }
+
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "time"] }
