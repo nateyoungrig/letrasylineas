@@ -1,4 +1,4 @@
-//! A backstop for the no-spoilers rule: Claude sees the whole song, and sometimes
+//! A backstop for the no-spoilers rule: the AI sees the whole song, and sometimes
 //! quotes a line the learner hasn't translated yet with its translation in
 //! parentheses. Those parentheticals are blanked out here.
 

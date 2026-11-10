@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// The skills Claude may tag a line with. A fixed list keeps the dashboard's
+/// The skills the AI may tag a line with. A fixed list keeps the dashboard's
 /// per-skill averages meaningful across songs.
 pub const SKILL_TAGS: &[&str] = &[
     "vocabulary",
@@ -133,7 +133,7 @@ pub struct ReviewItem {
     pub line: Line,
 }
 
-/// Everything Claude needs to judge one line in context.
+/// Everything the AI needs to judge one line in context.
 #[derive(Debug, Clone)]
 pub struct LineContext {
     pub line_id: i64,
@@ -143,6 +143,6 @@ pub struct LineContext {
     pub line: String,
     /// Where the lyrics came from: pasted, lrclib:<id>, youtube-subs:<id> or whisper:<id>.
     pub source: String,
-    /// Other lines the learner hasn't translated yet, which Claude must not translate.
+    /// Other lines the learner hasn't translated yet, which the AI must not translate.
     pub untranslated: Vec<String>,
 }

@@ -1,4 +1,4 @@
-//! The Repaso tutor: one ongoing conversation with Claude, which is given a
+//! The Repaso tutor: one ongoing conversation with the AI, which is given a
 //! summary of all the learner's graded work with each message.
 
 use crate::models::Stats;

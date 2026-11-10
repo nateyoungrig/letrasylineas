@@ -286,7 +286,7 @@ impl Db {
         Ok(())
     }
 
-    /// The song and line Claude needs to grade `line_id`. Repeats resolve to their original line.
+    /// The song and line the AI needs to grade `line_id`. Repeats resolve to their original line.
     pub fn line_context(&self, line_id: i64) -> Result<LineContext> {
         let (song_id, original, line): (i64, i64, String) = self
             .conn

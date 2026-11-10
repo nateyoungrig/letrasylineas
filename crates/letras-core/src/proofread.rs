@@ -1,4 +1,4 @@
-//! A guarded Claude pass over a Whisper draft. Claude may only propose swapping a
+//! A guarded AI pass over a Whisper draft. The AI may only propose swapping a
 //! word or short phrase for one that sounds nearly the same; every proposal is
 //! checked here for sound-alikeness and shown to the learner to accept by ear.
 
@@ -24,7 +24,7 @@ pub struct SuspiciousLine {
 pub struct Proofread {
     pub suggestions: Vec<Suggestion>,
     pub suspicious_lines: Vec<SuspiciousLine>,
-    /// How many of Claude's proposals failed the sound-alike check and were dropped.
+    /// How many of The AI's proposals failed the sound-alike check and were dropped.
     #[serde(default)]
     pub rejected: usize,
 }
@@ -131,7 +131,7 @@ pub fn schema() -> serde_json::Value {
     })
 }
 
-/// The transcript as Claude sees it: numbered lines, unsure words marked.
+/// The transcript as the AI sees it: numbered lines, unsure words marked.
 pub fn prompt(title: &str, artist: &str, lines: &[DraftLine]) -> String {
     let mut out = format!("Song: \"{title}\" by {artist}\n\n<transcript>\n");
     let mut stanza = lines.first().map_or(0, |l| l.stanza);

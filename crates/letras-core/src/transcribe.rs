@@ -2,7 +2,7 @@
 //! otherwise Demucs (vocal isolation) and faster-whisper running locally.
 //!
 //! The result is a [`Draft`] for the learner to check by ear before saving. Nothing
-//! here asks a language model for lyrics; see `proofread` for the guarded Claude pass.
+//! here asks a language model for lyrics; see `proofread` for the guarded the AI pass.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
