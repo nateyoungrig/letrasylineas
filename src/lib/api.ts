@@ -178,9 +178,19 @@ export interface Proofread {
 /** Below this Whisper probability a word is marked unsure (matches the backend). */
 export const UNSURE_BELOW = 0.5;
 
+export type AiProvider = "anthropic" | "openai" | "chatgpt" | "openrouter";
+export interface AiStatus {
+  settings: { provider: AiProvider; models: Record<AiProvider, string> };
+  connections: { provider: AiProvider; connected: boolean; source: "keyring" | "environment" | "codex" | null; error: string | null }[];
+}
+
 export const api = {
-  hasApiKey: () => invoke<boolean>("has_api_key"),
-  setApiKey: (key: string) => invoke<void>("set_api_key", { key }),
+  aiStatus: () => invoke<AiStatus>("ai_status"),
+  saveAiSettings: (provider: AiProvider, model: string) => invoke<void>("save_ai_settings", { provider, model }),
+  setProviderKey: (provider: AiProvider, key: string) => invoke<void>("set_provider_key", { provider, key }),
+  loginProvider: (provider: AiProvider) => invoke<void>("login_provider", { provider }),
+  logoutProvider: (provider: AiProvider) => invoke<void>("logout_provider", { provider }),
+  cancelAiLogin: () => invoke<void>("cancel_ai_login"),
 
   listUsers: () => invoke<UserList>("list_users"),
   switchUser: (id: string) => invoke<UserList>("switch_user", { id }),
@@ -211,7 +221,7 @@ export const api = {
     listen<TranscribeProgress>("transcribe-progress", (e) => cb(e.payload)),
   proofread: (title: string, artist: string, lines: DraftLine[]) =>
     invoke<Proofread>("proofread_transcript", { title, artist, lines }),
-  /** Claude's reply in a conversation about one line of a transcript. */
+  /** The AI's reply in a conversation about one line of a transcript. */
   discussLine: (
     title: string,
     artist: string,

@@ -12,7 +12,7 @@
 
   $effect(() => {
     page.url.pathname; // re-check after visiting Settings
-    api.hasApiKey().then((k) => (hasKey = k));
+    api.aiStatus().then((s) => { hasKey = s.connections.some((c) => c.provider === s.settings.provider && c.connected); }).catch(() => { hasKey = false; });
   });
 
   let users = $state<UserList | null>(null);
@@ -70,7 +70,7 @@
 </header>
 
 {#if !hasKey && !page.url.pathname.startsWith("/settings")}
-  <p class="banner">Grading needs an Anthropic API key. <a href="/settings">Add it in Settings</a>.</p>
+  <p class="banner">Connect an AI provider to start grading. <a href="/settings">Choose one in Settings</a>.</p>
 {/if}
 
 <main class:fit>

@@ -200,7 +200,7 @@
         <span class="score" data-score={g.score}>{g.score}</span>
         <p class="verdict">
           {#if incomplete}
-            <span class="muted">Claude's feedback didn't come through for this one. Regrade fetches it again for the same translation.</span>
+            <span class="muted">The AI's feedback didn't come through for this one. Regrade fetches it again for the same translation.</span>
           {:else}
             {g.verdict}
           {/if}
@@ -209,7 +209,7 @@
       <dl>
         <dt>You wrote</dt>
         <dd>{attempt.translation}</dd>
-        <dt>Claude's version</dt>
+        <dt>The AI's version</dt>
         <dd class="best">{g.best_translation}</dd>
         {#if g.missed_nuance.length}
           <dt>Missed</dt>

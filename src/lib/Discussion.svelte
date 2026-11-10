@@ -18,7 +18,7 @@
     lines: () => DraftLine[];
     /** Index of the line under discussion. */
     line: number;
-    /** Claude's pending changes to this line, if any. */
+    /** The AI's pending changes to this line, if any. */
     suggestions: Suggestion[];
     suspicious: string | null;
     messages: ChatTurn[];

@@ -233,7 +233,7 @@
       const flagged = result.suspicious_lines.length;
       proofNote =
         n + flagged === 0
-          ? "Claude found nothing to change."
+          ? "The AI found nothing to change."
           : `${n} suggestion${n === 1 ? "" : "s"}${flagged ? `, ${flagged} line${flagged === 1 ? "" : "s"} to check` : ""}. Listen before accepting.`;
       if (result.rejected) proofNote += ` (${result.rejected} dropped for not sounding like the original.)`;
     } catch (e) {
@@ -346,7 +346,7 @@
       {#if draft.vocals_path}
         <label class="toggle"><input type="checkbox" bind:checked={useVocals} /> Play vocals only</label>
       {/if}
-      <button onclick={proofread} disabled={proofing}>{proofing ? "Claude is reading…" : "Check with Claude"}</button>
+      <button onclick={proofread} disabled={proofing}>{proofing ? "The AI is reading…" : "Check with AI"}</button>
       <button class="primary" onclick={save} disabled={saving || !title.trim() || rows.length === 0}>
         {saving ? "Saving…" : "Save song"}
       </button>
@@ -412,7 +412,7 @@
               class="link"
               onclick={() => (row.discussing = !row.discussing)}
               aria-expanded={row.discussing}
-              title="Talk this line over with Claude"
+              title="Talk this line over with the AI"
             >
               {row.discussing ? "Hide" : row.chat.length ? "Discuss…" : "Discuss"}
             </button>
@@ -423,7 +423,7 @@
         {#if row.flags.length || row.suspicious}
           <div class="flags">
             {#each row.flags as f}<span class="tag flag">{flagLabel(f, row)}</span>{/each}
-            {#if row.suspicious}<span class="tag flag">Claude: {row.suspicious}</span>{/if}
+            {#if row.suspicious}<span class="tag flag">AI: {row.suspicious}</span>{/if}
           </div>
         {/if}
         {#each row.suggestions as s}

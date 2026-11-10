@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, errorMessage } from "$lib/api";
+  import { onMount, onDestroy } from "svelte";
+  import { api, errorMessage, type AiProvider, type AiStatus } from "$lib/api";
   import { PALETTES, applyPalette, savedPalette, type PaletteId } from "$lib/palette";
 
   let palette = $state<PaletteId>(savedPalette());
@@ -9,27 +10,66 @@
     applyPalette(id);
   }
 
-  let hasKey = $state<boolean | null>(null);
+  const providers: { id: AiProvider; name: string; models: string[] }[] = [
+    { id: "anthropic", name: "Anthropic API", models: ["claude-opus-5-5"] },
+    { id: "chatgpt", name: "ChatGPT subscription (Codex)", models: ["gpt-6.1-sol", "gpt-6-astra"] },
+    { id: "openai", name: "OpenAI API", models: ["gpt-6.1-sol", "gpt-6-astra"] },
+    { id: "openrouter", name: "OpenRouter", models: ["openai/gpt-6.1-sol"] },
+  ];
+  let status = $state<AiStatus | null>(null);
+  let provider = $state<AiProvider>("anthropic");
+  let model = $state("");
   let key = $state("");
   let message = $state("");
   let error = $state("");
+  let busy = $state(false);
+  let signingIn = $state(false);
+  const selected = $derived(providers.find((p) => p.id === provider)!);
+  const connection = $derived(status?.connections.find((p) => p.provider === provider));
+  const active = $derived(providers.find((p) => p.id === status?.settings.provider));
 
-  async function refresh() {
-    hasKey = await api.hasApiKey();
+  async function refresh(initial = false) {
+    status = await api.aiStatus();
+    if (initial) provider = status.settings.provider;
+    if (initial) selectProvider();
   }
-  refresh();
+  onMount(() => { refresh(true).catch((e) => { error = errorMessage(e); }); });
 
-  async function save(value: string) {
+  onDestroy(() => { if (signingIn) api.cancelAiLogin().catch(() => {}); });
+
+  function selectProvider() {
+    model = status?.settings.models[provider] ?? selected.models[0];
+    key = "";
+    message = "";
+    error = "";
+  }
+
+  async function action(work: () => Promise<void>, success: string) {
+    busy = true;
     message = "";
     error = "";
     try {
-      await api.setApiKey(value);
-      key = "";
+      await work();
       await refresh();
-      message = value ? "Saved to your system keyring." : "Removed.";
+      message = success;
     } catch (e) {
       error = errorMessage(e);
+      await refresh().catch(() => {});
+    } finally {
+      busy = false;
+      signingIn = false;
     }
+  }
+
+  async function saveKey() {
+    const value = key;
+    key = "";
+    await action(() => api.setProviderKey(provider, value), "Saved to your system keyring.");
+  }
+
+  async function login() {
+    signingIn = true;
+    await action(() => api.loginProvider(provider), "Connected. Choose Use this provider to make it active.");
   }
 </script>
 
@@ -59,24 +99,79 @@
   </div>
 </section>
 
-<section class="card">
-  <h2>Anthropic API key</h2>
-  <p class="muted">
-    Stored in your OS keyring and only read by the app's backend; the UI never sees it.
-    {#if hasKey !== null}
-      <br />Status: <strong>{hasKey ? "set" : "not set"}</strong>
+<section class="card" aria-busy={busy}>
+  <h2>Your AI</h2>
+  {#if status && active}
+    <p>Active: <strong>{active.name}</strong> · {status.settings.models[status.settings.provider]}</p>
+  {:else}
+    <p class="muted">Loading AI settings…</p>
+  {/if}
+  <label for="provider">Provider</label>
+  <select id="provider" bind:value={provider} onchange={selectProvider} disabled={busy || !status}>
+    {#each providers as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
+  </select>
+
+  {#if provider === "chatgpt"}
+    <p class="muted">
+      Uses your installed Codex CLI and its ChatGPT sign-in. Usage counts toward your plan's Codex allowance.
+      Install Codex CLI 0.167 or newer if needed. The app never reads Codex tokens.
+    </p>
+    <p class="muted">Sign-in is shared with Codex CLI. Signing out here signs the CLI out too. New sign-ins use the OS keyring.</p>
+  {:else}
+    <p class="muted">
+      {provider === "openrouter" ? "Connect your OpenRouter account or enter a key. Usage uses your OpenRouter credits." : "Usage is billed to your API account."}
+      Keys are stored in your OS keyring. Saved credentials are never sent back to this page.
+    </p>
+  {/if}
+  {#if connection}
+    <p>Status: <strong>{connection.connected ? "connected" : "not connected"}</strong>{connection.source === "environment" ? " (environment variable)" : ""}</p>
+    {#if connection.error}<p class="error">{connection.error}</p>{/if}
+    {#if connection.source === "environment"}
+      <p class="muted">To disconnect this environment key, remove the provider's environment variable and restart the app.</p>
     {/if}
-  </p>
-  <form onsubmit={(e) => { e.preventDefault(); save(key); }}>
-    <input type="password" bind:value={key} placeholder="sk-ant-…" autocomplete="off" />
-    <button class="primary" type="submit" disabled={!key.trim()}>Save</button>
-    {#if hasKey}<button type="button" onclick={() => save("")}>Remove</button>{/if}
+  {/if}
+
+  <div class="actions">
+    {#if provider === "chatgpt" || provider === "openrouter"}
+      <button onclick={login} disabled={busy || !status}>{signingIn ? "Waiting for browser…" : provider === "chatgpt" ? "Sign in with ChatGPT" : "Connect OpenRouter"}</button>
+    {/if}
+    {#if connection?.connected && connection.source !== "environment"}
+      <button disabled={busy} onclick={() => action(() => api.logoutProvider(provider), provider === "chatgpt" ? "Signed out of Codex." : "Saved key removed. Revoke it at your provider to disable it elsewhere.")}>
+        {provider === "chatgpt" ? "Sign out of Codex" : "Remove saved key"}
+      </button>
+    {/if}
+    {#if signingIn}
+      <button onclick={() => api.cancelAiLogin().catch((e) => { error = errorMessage(e); })}>Cancel sign-in</button>
+    {/if}
+    <button disabled={busy} onclick={() => action(() => refresh(), "Connection status refreshed.")}>Refresh status</button>
+  </div>
+
+  {#if provider !== "chatgpt"}
+    <form onsubmit={(e) => { e.preventDefault(); saveKey(); }}>
+      <label class="sr-only" for="api-key">API key</label>
+      <input id="api-key" type="password" bind:value={key} placeholder="API key" autocomplete="off" disabled={busy || !status} />
+      <button type="submit" disabled={busy || !key.trim()}>Save key</button>
+    </form>
+  {/if}
+
+  <form class="model-form" onsubmit={(e) => { e.preventDefault(); action(() => api.saveAiSettings(provider, model), "Active provider and model saved."); }}>
+    <label for="model">Model</label>
+    <input id="model" list="models" bind:value={model} disabled={busy || !status} required autocomplete="off" />
+    <datalist id="models">{#each selected.models as value}<option {value}></option>{/each}</datalist>
+    <p class="muted">Choose a suggested model or enter a model ID available to your account. It must support reasoning and structured output.</p>
+    <button class="primary" type="submit" disabled={busy || !model.trim() || !status}>Use this provider</button>
   </form>
-  {#if message}<p>{message}</p>{/if}
-  {#if error}<p class="error">{error}</p>{/if}
+  <div aria-live="polite">
+    {#if message}<p>{message}</p>{/if}
+    {#if error}<p class="error">{error}</p>{/if}
+  </div>
 </section>
 
 <style>
+  .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+  .model-form { display: flex; flex-direction: column; margin-top: 1.25rem; }
+  #provider { display: block; width: 100%; margin-top: 0.4rem; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   section {
     max-width: 640px;
     margin-bottom: 1rem;
