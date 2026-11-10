@@ -1,17 +1,19 @@
-//! Tauri shell: thin commands over `letras_core`. The Anthropic API key lives in the
-//! OS keyring (or `ANTHROPIC_API_KEY` for development) and never reaches the webview.
+//! Tauri shell: credentials stay in the native backend and never reach the webview.
+
+mod ai_settings;
+mod openrouter_auth;
+use ai_settings::{
+    AiState, ai_status, cancel_ai_login, login_provider, logout_provider, save_ai_settings, set_provider_key,
+};
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use letras_core::models::{Attempt, EditPlan, ReviewItem, Song, SongSummary, Stats, ThreadMessage, TutorMessage};
 use letras_core::lookup::{self, LookupResult};
+use letras_core::models::{Attempt, EditPlan, ReviewItem, Song, SongSummary, Stats, ThreadMessage, TutorMessage};
 use letras_core::proofread::{ChatTurn, Proofread, Suggestion};
 use letras_core::transcribe::{self, Draft, DraftLine};
-use letras_core::{Claude, Db, User, Users, service};
+use letras_core::{Db, User, Users, service};
 use tauri::{AppHandle, Emitter, Manager, State};
-
-const KEYRING_SERVICE: &str = "letrasylineas";
-const KEYRING_USER: &str = "anthropic-api-key";
 
 struct AppState {
     users: Mutex<Users>,
@@ -38,40 +40,6 @@ fn with_db<T>(state: &State<'_, AppState>, f: impl FnOnce(&mut Db) -> letras_cor
     f(&mut lock(&current_db(state))).map_err(err)
 }
 
-fn key_entry() -> CmdResult<keyring::Entry> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(err)
-}
-
-fn api_key() -> Option<String> {
-    key_entry()
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
-        .filter(|k| !k.trim().is_empty())
-}
-
-fn claude() -> CmdResult<Claude> {
-    api_key().map(Claude::new).ok_or_else(|| "Add your Anthropic API key in Settings first".to_string())
-}
-
-#[tauri::command]
-fn has_api_key() -> bool {
-    api_key().is_some()
-}
-
-#[tauri::command]
-fn set_api_key(key: String) -> CmdResult<()> {
-    let entry = key_entry()?;
-    let key = key.trim();
-    if key.is_empty() {
-        return match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(err(e)),
-        };
-    }
-    entry.set_password(key).map_err(err)
-}
-
 #[derive(serde::Serialize)]
 struct UserList {
     current: String,
@@ -79,7 +47,10 @@ struct UserList {
 }
 
 fn user_list(users: &Users) -> UserList {
-    UserList { current: users.current().id.clone(), users: users.list().to_vec() }
+    UserList {
+        current: users.current().id.clone(),
+        users: users.list().to_vec(),
+    }
 }
 
 #[tauri::command]
@@ -148,8 +119,14 @@ fn log_client(app: AppHandle, message: String) -> CmdResult<()> {
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1_000_000) {
         let _ = std::fs::remove_file(&path);
     }
-    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&path).map_err(err)?;
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(err)?;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     writeln!(file, "{secs} {}", message.replace('\n', " ")).map_err(err)
 }
 
@@ -163,7 +140,10 @@ async fn read_audio(app: AppHandle, path: String) -> CmdResult<tauri::ipc::Respo
     if !path.starts_with(&root) {
         return Err("that file isn't one the app downloaded".into());
     }
-    let bytes = tauri::async_runtime::spawn_blocking(move || std::fs::read(path)).await.map_err(err)?.map_err(err)?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || std::fs::read(path))
+        .await
+        .map_err(err)?
+        .map_err(err)?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -179,7 +159,10 @@ struct AudioSupport {
 #[tauri::command]
 fn audio_support() -> AudioSupport {
     if !cfg!(target_os = "linux") {
-        return AudioSupport { ok: true, missing: vec![] };
+        return AudioSupport {
+            ok: true,
+            missing: vec![],
+        };
     }
     let missing: Vec<String> = ["autoaudiosink", "wavparse"]
         .into_iter()
@@ -192,17 +175,29 @@ fn audio_support() -> AudioSupport {
         })
         .map(String::from)
         .collect();
-    AudioSupport { ok: missing.is_empty(), missing }
+    AudioSupport {
+        ok: missing.is_empty(),
+        missing,
+    }
 }
 
 #[tauri::command]
-async fn proofread_transcript(title: String, artist: String, lines: Vec<DraftLine>) -> CmdResult<Proofread> {
-    claude()?.proofread(&title, &artist, &lines).await.map_err(err)
+async fn proofread_transcript(
+    ai_state: State<'_, AiState>,
+    title: String,
+    artist: String,
+    lines: Vec<DraftLine>,
+) -> CmdResult<Proofread> {
+    ai_settings::client(&ai_state)?
+        .proofread(&title, &artist, &lines)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 async fn discuss_line(
+    ai_state: State<'_, AiState>,
     title: String,
     artist: String,
     lines: Vec<DraftLine>,
@@ -218,8 +213,17 @@ async fn discuss_line(
     if history.first().is_some_and(|m| m.role != "user") {
         return Err("a discussion has to start with your message".into());
     }
-    claude()?
-        .discuss(&title, &artist, &lines, line, &suggestions, suspicious.as_deref(), &history, &question)
+    ai_settings::client(&ai_state)?
+        .discuss(
+            &title,
+            &artist,
+            &lines,
+            line,
+            &suggestions,
+            suspicious.as_deref(),
+            &history,
+            &question,
+        )
         .await
         .map_err(err)
 }
@@ -259,18 +263,33 @@ fn delete_song(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
 
 #[tauri::command]
 async fn submit_translation(
+    ai_state: State<'_, AiState>,
     state: State<'_, AppState>,
     line_id: i64,
     translation: String,
     source: String,
 ) -> CmdResult<Attempt> {
     let source = if source == "repaso" { "repaso" } else { "board" };
-    service::grade_line(&current_db(&state), &claude()?, line_id, &translation, source).await.map_err(err)
+    service::grade_line(
+        &current_db(&state),
+        &ai_settings::client(&ai_state)?,
+        line_id,
+        &translation,
+        source,
+    )
+    .await
+    .map_err(err)
 }
 
 #[tauri::command]
-async fn regrade_attempt(state: State<'_, AppState>, attempt_id: i64) -> CmdResult<Attempt> {
-    service::regrade(&current_db(&state), &claude()?, attempt_id).await.map_err(err)
+async fn regrade_attempt(
+    ai_state: State<'_, AiState>,
+    state: State<'_, AppState>,
+    attempt_id: i64,
+) -> CmdResult<Attempt> {
+    service::regrade(&current_db(&state), &ai_settings::client(&ai_state)?, attempt_id)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -279,8 +298,20 @@ fn get_thread(state: State<'_, AppState>, attempt_id: i64) -> CmdResult<Vec<Thre
 }
 
 #[tauri::command]
-async fn ask_followup(state: State<'_, AppState>, attempt_id: i64, question: String) -> CmdResult<Vec<ThreadMessage>> {
-    service::ask(&current_db(&state), &claude()?, attempt_id, &question).await.map_err(err)
+async fn ask_followup(
+    ai_state: State<'_, AiState>,
+    state: State<'_, AppState>,
+    attempt_id: i64,
+    question: String,
+) -> CmdResult<Vec<ThreadMessage>> {
+    service::ask(
+        &current_db(&state),
+        &ai_settings::client(&ai_state)?,
+        attempt_id,
+        &question,
+    )
+    .await
+    .map_err(err)
 }
 
 #[tauri::command]
@@ -289,8 +320,14 @@ fn tutor_thread(state: State<'_, AppState>) -> CmdResult<Vec<TutorMessage>> {
 }
 
 #[tauri::command]
-async fn ask_tutor(state: State<'_, AppState>, question: String) -> CmdResult<Vec<TutorMessage>> {
-    service::ask_tutor(&current_db(&state), &claude()?, &question).await.map_err(err)
+async fn ask_tutor(
+    ai_state: State<'_, AiState>,
+    state: State<'_, AppState>,
+    question: String,
+) -> CmdResult<Vec<TutorMessage>> {
+    service::ask_tutor(&current_db(&state), &ai_settings::client(&ai_state)?, &question)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -315,13 +352,21 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let users = Users::load(&dir)?;
+            app.manage(AiState::new(letras_core::settings::SettingsStore::load(&dir)?));
             let db = users.open_current()?;
-            app.manage(AppState { users: Mutex::new(users), db: Mutex::new(Arc::new(Mutex::new(db))) });
+            app.manage(AppState {
+                users: Mutex::new(users),
+                db: Mutex::new(Arc::new(Mutex::new(db))),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            has_api_key,
-            set_api_key,
+            ai_status,
+            save_ai_settings,
+            set_provider_key,
+            login_provider,
+            logout_provider,
+            cancel_ai_login,
             list_users,
             switch_user,
             list_songs,
